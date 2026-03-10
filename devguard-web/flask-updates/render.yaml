@@ -1,0 +1,27 @@
+# render.yaml — Render.com Deployment Configuration
+# ====================================================
+# Place this file in the ROOT of your devguard repository.
+# Render reads it automatically when you connect your GitHub repo.
+#
+# HOW TO DEPLOY:
+# 1. Push your devguard project to GitHub
+# 2. Go to https://render.com → New → Web Service
+# 3. Connect your GitHub repo
+# 4. Render detects this file and configures everything automatically
+# 5. Add environment variables in Render dashboard (SECRET_KEY, JWT_SECRET_KEY)
+
+services:
+  - type: web
+    name: devguard-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 wsgi:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true        # Render auto-generates a secure random value
+      - key: JWT_SECRET_KEY
+        generateValue: true        # Render auto-generates a secure random value
+    healthCheckPath: /api/v1/health
+    autoDeploy: true               # Re-deploys automatically on every git push

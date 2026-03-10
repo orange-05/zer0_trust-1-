@@ -1,0 +1,284 @@
+# .github/workflows/ci.yml
+# ==========================
+# CI Pipeline — Runs on every push and pull request
+#
+# WHAT THIS FILE IS:
+# GitHub Actions reads YAML files in .github/workflows/ automatically.
+# Every push to any branch triggers this pipeline.
+#
+# PIPELINE STAGES (in order):
+# 1. lint      — Check code style with flake8
+# 2. test      — Run pytest with coverage
+# 3. scan-deps — Trivy scans requirements.txt for vulnerable packages
+# 4. build     — Build Docker image
+# 5. scan-image— Trivy scans the built Docker image for OS/package vulns
+# 6. sbom      — Generate Software Bill of Materials
+# 7. sign      — Sign the Docker image with Cosign
+# 8. report    — Post results to our Flask API
+#
+# FAIL FAST:
+# If lint or tests fail → pipeline stops immediately.
+# No point scanning a broken app.
+
+name: DevGuard CI Pipeline
+
+on:
+  push:
+    branches: ["**"]       # All branches
+  pull_request:
+    branches: ["main"]     # PRs targeting main
+
+env:
+  IMAGE_NAME: devguard-api
+  IMAGE_TAG: ${{ github.sha }}   # Use commit SHA as image tag (unique + traceable)
+  REGISTRY: ghcr.io              # GitHub Container Registry
+
+jobs:
+
+  # ================================================================
+  # JOB 1: LINT
+  # ================================================================
+  lint:
+    name: "Lint (flake8)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run flake8
+        # --max-line-length=120: Allow slightly longer lines than default 79
+        # --exclude: Skip generated/vendor directories
+        run: |
+          flake8 app/ \
+            --max-line-length=120 \
+            --exclude=__pycache__ \
+            --statistics
+
+  # ================================================================
+  # JOB 2: TEST WITH COVERAGE
+  # ================================================================
+  test:
+    name: "Tests (pytest)"
+    runs-on: ubuntu-latest
+    needs: lint              # Only run if lint passes
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        run: |
+          pytest \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # ================================================================
+  # JOB 3: DEPENDENCY VULNERABILITY SCAN
+  # ================================================================
+  scan-deps:
+    name: "Dependency Scan (Trivy)"
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy on filesystem/dependencies
+        # Trivy scans requirements.txt for known CVEs
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "json"
+          output: "reports/trivy-deps.json"
+          severity: "CRITICAL,HIGH"
+          # exit-code 1 means fail if CRITICAL vulns found
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload dependency scan report
+        uses: actions/upload-artifact@v4
+        if: always()          # Upload even if scan failed
+        with:
+          name: trivy-deps-report
+          path: reports/trivy-deps.json
+
+  # ================================================================
+  # JOB 4: BUILD DOCKER IMAGE
+  # ================================================================
+  build:
+    name: "Docker Build"
+    runs-on: ubuntu-latest
+    needs: scan-deps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false            # Don't push yet — scan first
+          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha   # Use GitHub Actions cache for faster builds
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/image.tar
+
+      - name: Save image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/image.tar
+
+  # ================================================================
+  # JOB 5: IMAGE VULNERABILITY SCAN
+  # ================================================================
+  scan-image:
+    name: "Image Scan (Trivy)"
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp
+
+      - name: Load Docker image
+        run: docker load --input /tmp/image.tar
+
+      - name: Run Trivy on Docker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "image"
+          image-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          format: "json"
+          output: "reports/trivy-image.json"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload image scan report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-report
+          path: reports/trivy-image.json
+
+  # ================================================================
+  # JOB 6: SBOM GENERATION
+  # ================================================================
+  sbom:
+    name: "SBOM Generation"
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SBOM with Syft
+        # Syft generates a Software Bill of Materials — a list of
+        # every component in your container image.
+        # This is required for supply chain compliance (SLSA, SSDF).
+        uses: anchore/sbom-action@v0
+        with:
+          artifact-name: "sbom.spdx.json"
+          output-file: "reports/sbom.json"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: reports/sbom.json
+
+  # ================================================================
+  # JOB 7: IMAGE SIGNING (Cosign)
+  # ================================================================
+  sign:
+    name: "Sign Image (Cosign)"
+    runs-on: ubuntu-latest
+    needs: [scan-image, sbom]
+    if: github.ref == 'refs/heads/main'   # Only sign on main branch
+    permissions:
+      contents: read
+      packages: write
+      id-token: write    # Needed for keyless signing with Sigstore
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image to registry
+        run: |
+          docker load --input /tmp/image.tar
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.IMAGE_TAG }}
+
+      - name: Sign image with Cosign (keyless)
+        # Keyless signing uses GitHub OIDC token — no key management needed.
+        # The signature is stored in the Sigstore transparency log.
+        # Anyone can verify: cosign verify $IMAGE --certificate-identity ...
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.IMAGE_TAG }}
+
+  # ================================================================
+  # JOB 8: REPORT RESULTS TO FLASK API
+  # ================================================================
+  report:
+    name: "Report to DevGuard API"
+    runs-on: ubuntu-latest
+    needs: [scan-deps, scan-image]
+    if: always()     # Report even if scans failed
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download scan artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Post results to DevGuard API
+        # This script logs in to the API, creates a pipeline record,
+        # and posts scan results. The script is in scripts/
+        env:
+          DEVGUARD_API_URL: ${{ secrets.DEVGUARD_API_URL }}
+          DEVGUARD_USERNAME: ${{ secrets.DEVGUARD_USERNAME }}
+          DEVGUARD_PASSWORD: ${{ secrets.DEVGUARD_PASSWORD }}
+        run: |
+          bash scripts/report_to_api.sh \
+            "$GITHUB_SHA" \
+            "$GITHUB_REF_NAME" \
+            "github-actions"

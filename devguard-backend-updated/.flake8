@@ -1,0 +1,27 @@
+[flake8]
+# .flake8 — Flake8 Linting Configuration
+# ========================================
+# Flake8 checks your code against PEP8 (Python style guide).
+# This config customizes which rules to apply.
+
+max-line-length = 120
+
+# Exclude directories that don't need linting
+exclude =
+    .git,
+    __pycache__,
+    .pytest_cache,
+    venv,
+    .venv,
+    build,
+    dist,
+    data,
+    reports
+
+# Ignore specific warnings:
+# E501: line too long (handled by max-line-length)
+# W503: line break before binary operator (conflicts with Black formatter)
+ignore = W503
+
+# Show stats at the end: how many of each error type
+statistics = True
