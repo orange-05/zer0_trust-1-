@@ -1,0 +1,34 @@
+# monitoring/prometheus/prometheus.yml
+# =====================================
+# Prometheus Configuration
+#
+# HOW PROMETHEUS WORKS:
+# 1. Prometheus PULLS metrics from targets (scraping model)
+# 2. Targets expose a /metrics endpoint
+# 3. Prometheus stores metrics as time series
+# 4. Grafana queries Prometheus to display charts
+#
+# Note: For full Prometheus metrics, you'd add prometheus-flask-exporter
+# to the Flask app. For this project, we use our /security-report endpoint
+# as the data source for Grafana via its JSON API data source.
+
+global:
+  scrape_interval: 15s      # Pull metrics every 15 seconds
+  evaluation_interval: 15s  # Evaluate alerting rules every 15 seconds
+
+# ── Scrape Configurations ──────────────────────────────────────────
+scrape_configs:
+
+  # Prometheus scrapes its own metrics (meta-monitoring)
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Scrape the DevGuard API health endpoint
+  # In a full setup, you'd add prometheus-flask-exporter
+  # to expose /metrics with counter/gauge data
+  - job_name: "devguard-api"
+    static_configs:
+      - targets: ["api:5000"]   # "api" = service name in docker-compose
+    metrics_path: "/api/v1/health"
+    scrape_interval: 30s

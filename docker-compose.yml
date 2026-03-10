@@ -1,0 +1,106 @@
+# docker-compose.yml — Local Development Stack
+# ===============================================
+# Runs the complete DevGuard platform locally:
+# - Flask API
+# - Prometheus (metrics collection)
+# - Grafana (metrics visualization)
+#
+# HOW TO START:
+#   docker compose up --build
+#
+# HOW TO STOP:
+#   docker compose down
+#
+# HOW TO STOP AND REMOVE VOLUMES:
+#   docker compose down -v
+#
+# WHY DOCKER COMPOSE FOR LOCAL DEV?
+# - Starts all services with one command
+# - Services communicate via internal Docker network
+# - Volumes persist data between restarts
+# - Environment variables configured in one place
+
+version: "3.9"
+
+services:
+
+  # ── Flask API ──────────────────────────────────────────────────
+  api:
+    build:
+      context: .           # Build from current directory (uses Dockerfile)
+      dockerfile: Dockerfile
+    container_name: devguard-api
+    ports:
+      - "5000:5000"        # host:container — access at localhost:5000
+    environment:
+      - FLASK_ENV=development
+      - SECRET_KEY=local-dev-secret-key-change-in-prod
+      - JWT_SECRET_KEY=local-dev-jwt-key-change-in-prod
+      # Set this to your React app's URL in production:
+      # e.g. https://devguard.netlify.app
+      - CORS_ORIGINS=*
+    volumes:
+      # Mount local data dir into container so data persists
+      - ./data:/app/data
+      - ./reports:/app/reports
+    networks:
+      - devguard-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Prometheus ─────────────────────────────────────────────────
+  # Prometheus scrapes metrics from our API endpoint
+  # and stores time-series data for Grafana to query
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: devguard-prometheus
+    ports:
+      - "9090:9090"        # Access Prometheus UI at localhost:9090
+    volumes:
+      # Our custom Prometheus config tells it what to scrape
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - devguard-net
+    restart: unless-stopped
+
+  # ── Grafana ────────────────────────────────────────────────────
+  # Grafana connects to Prometheus and renders dashboards
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: devguard-grafana
+    ports:
+      - "3000:3000"        # Access Grafana at localhost:3000
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=devguard123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - devguard-net
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# ── Networks ──────────────────────────────────────────────────────
+# All services communicate on this internal network.
+# Services reference each other by container name (e.g., "api", "prometheus")
+networks:
+  devguard-net:
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────────────
+# Named volumes persist data between docker compose up/down cycles
+volumes:
+  prometheus-data:
+  grafana-data:
