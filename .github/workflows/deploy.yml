@@ -268,7 +268,7 @@ jobs:
           elif [ "$DEP" = "success" ]; then
             OVERALL="✅ DEPLOYED — VERIFY PASSED"
           elif [ "$DEP" = "skipped" ]; then
-            OVERALL="⏭ DEPLOY SKIPPED — CI not yet complete"
+            OVERALL="⏭ DEPLOY SKIPPED — CI pipeline did not fully pass (Sign Image may have failed)"
           else
             OVERALL="❌ DEPLOYMENT FAILED"
           fi

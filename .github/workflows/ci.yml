@@ -453,10 +453,13 @@ jobs:
       - name: Tag and push to GHCR
         id: push
         run: |
-          # lowercase + replace underscores with hyphens (Docker requires this)
-          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
-          SHA_TAG="ghcr.io/$REPO:${{ env.IMAGE_TAG }}"
-          LATEST="ghcr.io/$REPO:latest"
+          # Use repository_owner (just "orange-05") + fixed app name
+          # This avoids the repo name "zer0_trust-1-" which has chars
+          # that Docker image names don't allow (underscores)
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          SHA_TAG="ghcr.io/$OWNER/devguard-api:${{ env.IMAGE_TAG }}"
+          LATEST="ghcr.io/$OWNER/devguard-api:latest"
+          echo "Pushing to: $SHA_TAG"
           docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} $SHA_TAG
           docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} $LATEST
           docker push $SHA_TAG
