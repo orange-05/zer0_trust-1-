@@ -453,7 +453,8 @@ jobs:
       - name: Tag and push to GHCR
         id: push
         run: |
-          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          # lowercase + replace underscores with hyphens (Docker requires this)
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
           SHA_TAG="ghcr.io/$REPO:${{ env.IMAGE_TAG }}"
           LATEST="ghcr.io/$REPO:latest"
           docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} $SHA_TAG
