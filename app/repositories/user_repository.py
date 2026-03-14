@@ -10,7 +10,7 @@ WHY A SPECIFIC REPOSITORY?
 import os
 from flask import current_app
 from app.repositories.json_repository import JsonRepository
-from typing import Optional
+from typing import Dict, Optional
 
 
 class UserRepository(JsonRepository):
