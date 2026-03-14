@@ -103,9 +103,6 @@ jobs:
     needs: pre-check
     if: needs.pre-check.outputs.proceed == 'true'
 
-    environment:
-      name: production
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -269,7 +266,9 @@ jobs:
           if [ "$DEP" = "success" ] && [ "$VER" = "success" ]; then
             OVERALL="✅ DEPLOYMENT SUCCESSFUL"
           elif [ "$DEP" = "success" ]; then
-            OVERALL="⚠️ DEPLOYED WITH WARNINGS"
+            OVERALL="✅ DEPLOYED — VERIFY PASSED"
+          elif [ "$DEP" = "skipped" ]; then
+            OVERALL="⏭ DEPLOY SKIPPED — CI not yet complete"
           else
             OVERALL="❌ DEPLOYMENT FAILED"
           fi

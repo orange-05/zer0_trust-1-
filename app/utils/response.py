@@ -25,7 +25,7 @@ always know where to look for data vs errors.
 """
 
 from flask import jsonify
-from typing import Any, Optional
+from typing import Any
 
 
 def success_response(data: Any = None, message: str = None, status_code: int = 200):
