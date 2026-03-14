@@ -562,14 +562,14 @@ jobs:
 | **Event** | {event} |
 | **Run** | [#{run_n}]({server}/{repo}/actions/runs/{run_id}) |
 
----
+***
 
 ## 🔒 Trust Gate Decision
 
 ### {trust}
 {detail}
 
----
+***
 
 ## 📊 Security Scan Results
 
@@ -579,7 +579,7 @@ jobs:
 | Image (Trivy) | {ic} | {ih} | {"✅ Pass" if ic == 0 else "❌ Blocked"} |
 | **TOTAL** | **{tc}** | **{th}** | |
 
----
+***
 
 ## 🔗 Pipeline Stages
 
@@ -594,7 +594,7 @@ jobs:
 | 7 | ✍ Sign | Cosign keyless | {sign_s} |
 | 8 | 📊 Summary | — | ✅ Done |
 
----
+***
 
 ## 📁 Downloadable Artifacts
 
@@ -605,7 +605,7 @@ jobs:
 | `trivy-image-report` | Image CVE scan | 14 days |
 | `sbom-report` | SPDX Bill of Materials | 90 days |
 
----
+***
 *DevGuard Zero-Trust Pipeline · `{sha[:12]}` · `{branch}`*
 """
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:

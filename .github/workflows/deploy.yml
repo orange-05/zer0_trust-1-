@@ -297,7 +297,7 @@ jobs:
           | Trigger | ${{ github.event_name }} |
           | Run | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
 
-          ---
+          ***
 
           ## 📋 Job Results
 
@@ -307,7 +307,7 @@ jobs:
           | 🚀 Deploy | $(icon $DEP) |
           | ✅ Verify | $(icon $VER) |
 
-          ---
+          ***
 
           ## 🛡 Zero-Trust Gates
 
@@ -320,7 +320,7 @@ jobs:
           | Health endpoint present | ✅ Confirmed |
           | Pinned dependencies | ✅ Confirmed |
 
-          ---
+          ***
 
           ## 🔧 Connect to Your Docker Server
 
@@ -335,6 +335,6 @@ jobs:
           Then swap the deployment step in \`deploy.yml\` with the SSH action
           shown in the comments inside that step.
 
-          ---
+          ***
           *DevGuard Zero-Trust CD · \`${{ github.sha }}\` · ${{ github.actor }}*
           REPORT
