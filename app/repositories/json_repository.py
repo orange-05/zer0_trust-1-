@@ -26,7 +26,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from app.repositories.base_repository import BaseRepository
 from app.utils.file_lock import get_file_lock

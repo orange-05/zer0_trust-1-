@@ -5,7 +5,7 @@ app/repositories/deployment_repository.py — Deployment Records Data Access
 import os
 from flask import current_app
 from app.repositories.json_repository import JsonRepository
-from typing import List, Dict
+from typing import List
 
 
 class DeploymentRepository(JsonRepository):

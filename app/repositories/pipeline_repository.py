@@ -15,7 +15,7 @@ These three repositories follow the same pattern as UserRepository:
 import os
 from flask import current_app
 from app.repositories.json_repository import JsonRepository
-from typing import List, Dict
+from typing import List
 
 
 class PipelineRepository(JsonRepository):
