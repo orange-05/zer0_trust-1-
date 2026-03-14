@@ -1,79 +1,14 @@
-# ============================================================
-# DevGuard — Zero-Trust CI/CD Pipeline
-# ============================================================
-#
-# WHAT YOU SEE IN GITHUB ACTIONS:
-#
-#   Workflow Graph (Actions tab → click any run → top of page):
-#
-#   ┌────────┐   ┌────────┐   ┌─────────────┐   ┌─────────┐
-#   │  lint  │──▶│  test  │──▶│  scan-deps  │──▶│  build  │
-#   └────────┘   └────────┘   └─────────────┘   └────┬────┘
-#                                                      │
-#                                       ┌──────────────┼──────────────┐
-#                                       ▼              ▼              ▼
-#                                 ┌──────────┐    ┌─────────┐   (parallel)
-#                                 │scan-image│    │  sbom   │
-#                                 └────┬─────┘    └────┬────┘
-#                                      └──────┬─────────┘
-#                                             ▼
-#                                        ┌─────────┐
-#                                        │  sign   │  ← main only
-#                                        └────┬────┘
-#                                             ▼
-#                                       ┌──────────┐
-#                                       │ summary  │  ← always
-#                                       └──────────┘
-#
-# HOW TO SEE THE GRAPH IN GITHUB:
-#   1. Push this repo to GitHub
-#   2. Click "Actions" tab (top menu of your repo)
-#   3. Click "DevGuard CI — Zero-Trust Pipeline" in the sidebar
-#   4. Click any run → you see the visual job graph
-#   5. Click any job box → see step-by-step logs
-#   6. Click "Summary" on the left → see the security report table
-#
-# TRIGGERS:
-#   push to any branch   → lint, test, scan, build, scan-image, sbom, summary
-#   push to main         → all above + sign + push to GHCR
-#   pull_request to main → same as push (no sign)
-# ============================================================
-
-name: "DevGuard CI — Zero-Trust Pipeline"
-
-# ── WHAT YOU SEE IN GITHUB ACTIONS ──────────────────────────────
-# Actions tab → click this workflow → click any run:
-#
-#  ┌──────┐   ┌──────┐   ┌────────────┐   ┌───────┐
-#  │ Lint │──▶│ Test │──▶│ Dep Scan   │──▶│ Build │
-#  └──────┘   └──────┘   └────────────┘   └───┬───┘
-#                                              │
-#                          ┌───────────────────┼────────────────┐
-#                          ▼                   ▼                ▼
-#                    ┌──────────┐        ┌──────────┐    (parallel)
-#                    │  Image   │        │   SBOM   │
-#                    │   Scan   │        │          │
-#                    └────┬─────┘        └────┬─────┘
-#                         └────────┬──────────┘
-#                                  ▼
-#                            ┌──────────┐
-#                            │   Sign   │  ← main only
-#                            └────┬─────┘
-#                                 ▼
-#                           ┌──────────┐
-#                           │ Summary  │  ← always runs
-#                           └──────────┘
-# ────────────────────────────────────────────────────────────────
+name: DevGuard CI - Zero-Trust Pipeline
 
 on:
   push:
-    branches: ["**"]
   pull_request:
-    branches: ["main"]
+    branches:
+      - main
 
 env:
   IMAGE_NAME: devguard-api
-  IMAGE_TAG:  ${{ github.sha }}
+  IMAGE_TAG: ${{ github.sha }}
   PYTHON_VER: "3.11"
 
 concurrency:
@@ -81,26 +16,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-
-  # ============================================================
-  # JOB 1 — LINT
-  # ============================================================
+  # ── JOB 1 · LINT ──────────────────────────────────────────────
   lint:
-    name: "🔍 Lint"
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ env.PYTHON_VER }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VER }}
           cache: pip
 
       - name: Install flake8
-        run: pip install flake8==7.1.1
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8==7.1.1
 
       - name: Run flake8
         run: |
@@ -113,31 +47,37 @@ jobs:
       - name: Write summary
         if: always()
         run: |
-          echo "## 🔍 Lint (flake8)" >> $GITHUB_STEP_SUMMARY
-          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Tool | flake8 7.1.1 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Max line length | 120 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Target | \`app/\` |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Lint (flake8)"
+            echo ""
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| Tool | flake8 7.1.1 |"
+            echo "| Max line length | 120 |"
+            echo "| Target | \`app/\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  # ============================================================
-  # JOB 2 — TEST
-  # ============================================================
+  # ── JOB 2 · TEST ──────────────────────────────────────────────
   test:
-    name: "🧪 Test"
+    name: Test
     runs-on: ubuntu-latest
     needs: lint
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VER }}
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
 
       - name: Create test data directory
         run: mkdir -p data_test
@@ -154,8 +94,8 @@ jobs:
             -v
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
@@ -164,115 +104,124 @@ jobs:
       - name: Write summary
         if: always()
         run: |
-          COV=$(python3 -c "
+          COV=$(python3 - <<'PY'
           import xml.etree.ElementTree as ET
           try:
-            root = ET.parse('coverage.xml').getroot()
-            print(f\"{float(root.get('line-rate',0))*100:.1f}%\")
-          except: print('N/A')
-          " 2>/dev/null || echo "N/A")
-          echo "## 🧪 Tests (pytest)" >> $GITHUB_STEP_SUMMARY
-          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Coverage | $COV |" >> $GITHUB_STEP_SUMMARY
-          echo "| Artifact | \`coverage-report\` |" >> $GITHUB_STEP_SUMMARY
+              root = ET.parse('coverage.xml').getroot()
+              print(f'{float(root.get("line-rate", 0)) * 100:.1f}%')
+          except Exception:
+              print('N/A')
+          PY
+          )
+          {
+            echo "## Tests (pytest)"
+            echo ""
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| Coverage | $COV |"
+            echo "| Artifact | \`coverage-report\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  # ============================================================
-  # JOB 3 — DEPENDENCY SCAN (Trivy)
-  # ZERO-TRUST GATE: blocks if CRITICAL CVEs found
-  # ============================================================
+  # ── JOB 3 · DEPENDENCY SCAN ───────────────────────────────────
+  # Zero-trust gate: blocks pipeline on CRITICAL CVEs
   scan-deps:
-    name: "🛡 Dependency Scan"
+    name: Dependency Scan
     runs-on: ubuntu-latest
     needs: test
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Create reports dir
+      - name: Create reports directory
         run: mkdir -p reports
 
-      - name: Trivy — JSON output
-        uses: aquasecurity/trivy-action@master
+      - name: Trivy JSON scan
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          scan-type: "fs"
-          scan-ref: "."
-          format: "json"
-          output: "reports/trivy-deps.json"
-          severity: "CRITICAL,HIGH,MEDIUM"
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: reports/trivy-deps.json
+          severity: CRITICAL,HIGH,MEDIUM
           exit-code: "0"
           ignore-unfixed: true
 
-      - name: Trivy — table output (human-readable in logs)
-        uses: aquasecurity/trivy-action@master
+      - name: Trivy table scan
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          scan-type: "fs"
-          scan-ref: "."
-          format: "table"
-          severity: "CRITICAL,HIGH"
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH
           exit-code: "0"
           ignore-unfixed: true
 
       - name: Parse and gate
         id: gate
         run: |
-          python3 - << 'EOF'
-          import json, os
+          python3 - <<'PY'
+          import json
+          import os
+
+          critical = 0
+          high = 0
 
           try:
-            data = json.load(open("reports/trivy-deps.json"))
-            results = data.get("Results", [])
-            critical = sum(len([v for v in (r.get("Vulnerabilities") or []) if v.get("Severity") == "CRITICAL"]) for r in results)
-            high     = sum(len([v for v in (r.get("Vulnerabilities") or []) if v.get("Severity") == "HIGH"])     for r in results)
+              with open("reports/trivy-deps.json", "r", encoding="utf-8") as f:
+                  data = json.load(f)
+              for r in data.get("Results", []):
+                  for v in r.get("Vulnerabilities") or []:
+                      if v.get("Severity") == "CRITICAL":
+                          critical += 1
+                      elif v.get("Severity") == "HIGH":
+                          high += 1
           except Exception as e:
-            print(f"Parse warning: {e}")
-            critical, high = 0, 0
+              print(f"Parse warning: {e}")
 
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-            f.write(f"critical={critical}\n")
-            f.write(f"high={high}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"critical={critical}\n")
+              f.write(f"high={high}\n")
 
-          icon = "✅" if critical == 0 else "❌"
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-            f.write("## 🛡 Dependency Scan (Trivy)\n")
-            f.write("| Severity | Count |\n|----------|-------|\n")
-            f.write(f"| 🔴 Critical | {critical} |\n")
-            f.write(f"| 🟠 High | {high} |\n\n")
-            f.write(f"**Gate: {icon} {'PASSED' if critical == 0 else 'BLOCKED'}**\n")
+          status = "PASSED" if critical == 0 else "BLOCKED"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("## Dependency Scan (Trivy)\n\n")
+              f.write("| Severity | Count |\n")
+              f.write("|----------|-------|\n")
+              f.write(f"| Critical | {critical} |\n")
+              f.write(f"| High     | {high} |\n\n")
+              f.write(f"**Gate: {status}**\n")
+          PY
 
-          print(f"dep scan — critical={critical}, high={high}")
-          EOF
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload dependency scan artifact
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: trivy-deps-report
           path: reports/trivy-deps.json
           retention-days: 14
 
-      - name: "🚨 GATE — block on critical CVEs"
+      - name: Block on critical dependency CVEs
         if: steps.gate.outputs.critical != '0'
         run: |
-          echo "::error::ZERO-TRUST GATE: ${{ steps.gate.outputs.critical }} CRITICAL CVEs in dependencies — pipeline stopped"
+          echo "::error::Zero-trust gate blocked: ${{ steps.gate.outputs.critical }} critical dependency vulnerabilities found."
           exit 1
 
-  # ============================================================
-  # JOB 4 — DOCKER BUILD
-  # ============================================================
+  # ── JOB 4 · DOCKER BUILD ──────────────────────────────────────
   build:
-    name: "🐳 Docker Build"
+    name: Docker Build
     runs-on: ubuntu-latest
     needs: scan-deps
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: false
@@ -290,24 +239,22 @@ jobs:
 
       - name: Write summary
         run: |
-          echo "## 🐳 Docker Build" >> $GITHUB_STEP_SUMMARY
-          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Base | python:3.11-slim (non-root) |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Docker Build"
+            echo ""
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| Image | \`${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  # ============================================================
-  # JOB 5 — IMAGE SCAN (Trivy) — parallel with sbom
-  # ZERO-TRUST GATE: blocks sign if CRITICAL CVEs found
-  # ============================================================
+  # ── JOB 5 · IMAGE SCAN (parallel with sbom) ───────────────────
+  # Zero-trust gate: blocks signing on CRITICAL CVEs
   scan-image:
-    name: "🔬 Image Scan"
+    name: Image Scan
     runs-on: ubuntu-latest
     needs: build
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download image
         uses: actions/download-artifact@v4
         with:
@@ -317,85 +264,87 @@ jobs:
       - name: Load image
         run: docker load --input /tmp/devguard-image.tar
 
-      - name: Create reports dir
+      - name: Create reports directory
         run: mkdir -p reports
 
-      - name: Trivy — JSON output
-        uses: aquasecurity/trivy-action@master
+      - name: Trivy image JSON scan
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          scan-type: "image"
-          image-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
-          format: "json"
-          output: "reports/trivy-image.json"
-          severity: "CRITICAL,HIGH,MEDIUM"
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          format: json
+          output: reports/trivy-image.json
+          severity: CRITICAL,HIGH,MEDIUM
           exit-code: "0"
           ignore-unfixed: true
 
-      - name: Trivy — table output (human-readable)
-        uses: aquasecurity/trivy-action@master
+      - name: Trivy image table scan
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          scan-type: "image"
-          image-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
-          format: "table"
-          severity: "CRITICAL,HIGH"
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          format: table
+          severity: CRITICAL,HIGH
           exit-code: "0"
           ignore-unfixed: true
 
-      - name: Parse and gate
-        id: img-gate
+      - name: Parse and gate image scan
+        id: img_gate
         run: |
-          python3 - << 'EOF'
-          import json, os
+          python3 - <<'PY'
+          import json
+          import os
+
+          critical = 0
+          high = 0
 
           try:
-            data = json.load(open("reports/trivy-image.json"))
-            results = data.get("Results", [])
-            critical = sum(len([v for v in (r.get("Vulnerabilities") or []) if v.get("Severity") == "CRITICAL"]) for r in results)
-            high     = sum(len([v for v in (r.get("Vulnerabilities") or []) if v.get("Severity") == "HIGH"])     for r in results)
+              with open("reports/trivy-image.json", "r", encoding="utf-8") as f:
+                  data = json.load(f)
+              for r in data.get("Results", []):
+                  for v in r.get("Vulnerabilities") or []:
+                      if v.get("Severity") == "CRITICAL":
+                          critical += 1
+                      elif v.get("Severity") == "HIGH":
+                          high += 1
           except Exception as e:
-            print(f"Parse warning: {e}")
-            critical, high = 0, 0
+              print(f"Parse warning: {e}")
 
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-            f.write(f"critical={critical}\n")
-            f.write(f"high={high}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"critical={critical}\n")
+              f.write(f"high={high}\n")
 
-          icon = "✅" if critical == 0 else "❌"
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-            f.write("## 🔬 Image Scan (Trivy)\n")
-            f.write("| Severity | Count |\n|----------|-------|\n")
-            f.write(f"| 🔴 Critical | {critical} |\n")
-            f.write(f"| 🟠 High | {high} |\n\n")
-            f.write(f"**Gate: {icon} {'PASSED' if critical == 0 else 'BLOCKED'}**\n")
+          status = "PASSED" if critical == 0 else "BLOCKED"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("## Image Scan (Trivy)\n\n")
+              f.write("| Severity | Count |\n")
+              f.write("|----------|-------|\n")
+              f.write(f"| Critical | {critical} |\n")
+              f.write(f"| High     | {high} |\n\n")
+              f.write(f"**Gate: {status}**\n")
+          PY
 
-          print(f"image scan — critical={critical}, high={high}")
-          EOF
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload image scan artifact
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: trivy-image-report
           path: reports/trivy-image.json
           retention-days: 14
 
-      - name: "🚨 GATE — block on critical CVEs in image"
-        if: steps.img-gate.outputs.critical != '0'
+      - name: Block on critical image CVEs
+        if: steps.img_gate.outputs.critical != '0'
         run: |
-          echo "::error::ZERO-TRUST GATE: ${{ steps.img-gate.outputs.critical }} CRITICAL CVEs in image — signing blocked"
+          echo "::error::Zero-trust gate blocked: ${{ steps.img_gate.outputs.critical }} critical image vulnerabilities found."
           exit 1
 
-  # ============================================================
-  # JOB 6 — SBOM GENERATION (Syft) — parallel with scan-image
-  # ============================================================
+  # ── JOB 6 · SBOM (parallel with scan-image) ───────────────────
   sbom:
-    name: "📋 SBOM"
+    name: SBOM
     runs-on: ubuntu-latest
     needs: build
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download image
         uses: actions/download-artifact@v4
         with:
@@ -405,7 +354,7 @@ jobs:
       - name: Load image
         run: docker load --input /tmp/devguard-image.tar
 
-      - name: Create reports dir
+      - name: Create reports directory
         run: mkdir -p reports
 
       - name: Install Syft
@@ -415,25 +364,8 @@ jobs:
 
       - name: Generate SBOM
         run: |
-          syft ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
-            -o spdx-json=reports/sbom.spdx.json \
-            -o table
-
-      - name: Write summary
-        run: |
-          PKG=$(python3 -c "
-          import json
-          try:
-            d=json.load(open('reports/sbom.spdx.json'))
-            print(len([p for p in d.get('packages',[]) if p.get('name')]))
-          except: print('unknown')
-          ")
-          echo "## 📋 SBOM (Syft)" >> $GITHUB_STEP_SUMMARY
-          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Format | SPDX JSON |" >> $GITHUB_STEP_SUMMARY
-          echo "| Packages | $PKG |" >> $GITHUB_STEP_SUMMARY
-          echo "| Artifact | \`sbom-report\` |" >> $GITHUB_STEP_SUMMARY
+          syft "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" \
+            -o spdx-json=reports/sbom.spdx.json
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
@@ -442,28 +374,47 @@ jobs:
           path: reports/sbom.spdx.json
           retention-days: 90
 
-  # ============================================================
-  # JOB 7 — IMAGE SIGNING (Cosign)
-  # Only runs on push to main, only if scan-image + sbom both passed
-  # ============================================================
+      - name: Write summary
+        run: |
+          PKG=$(python3 - <<'PY'
+          import json
+          try:
+              with open('reports/sbom.spdx.json', 'r', encoding='utf-8') as f:
+                  d = json.load(f)
+              print(len(d.get('packages', [])))
+          except Exception:
+              print('unknown')
+          PY
+          )
+          {
+            echo "## SBOM (Syft)"
+            echo ""
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| Format | SPDX JSON |"
+            echo "| Packages | $PKG |"
+            echo "| Artifact | \`sbom-report\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── JOB 7 · SIGN (main only) ──────────────────────────────────
   sign:
-    name: "✍ Sign Image"
+    name: Sign Image
     runs-on: ubuntu-latest
-    needs: [scan-image, sbom]
+    needs:
+      - scan-image
+      - sbom
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     permissions:
       contents: read
       packages: write
-      id-token: write     # Required for Sigstore OIDC keyless signing
+      id-token: write # required for Sigstore OIDC keyless signing
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
         with:
-          cosign-release: "v2.2.4"
+          cosign-release: v2.2.4
 
       - name: Download image tar
         uses: actions/download-artifact@v4
@@ -482,157 +433,129 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tag and push to GHCR
-        id: push
+        id: push_image
         run: |
           REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           SHA_TAG="ghcr.io/$REPO:${{ env.IMAGE_TAG }}"
           LATEST="ghcr.io/$REPO:latest"
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} $SHA_TAG
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} $LATEST
-          docker push $SHA_TAG
-          docker push $LATEST
-          echo "sha-tag=$SHA_TAG" >> $GITHUB_OUTPUT
+          docker tag "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" "$SHA_TAG"
+          docker tag "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" "$LATEST"
+          docker push "$SHA_TAG"
+          docker push "$LATEST"
+          echo "sha_tag=$SHA_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Sign with Cosign (keyless)
-        run: cosign sign --yes ${{ steps.push.outputs.sha-tag }}
+      - name: Sign with Cosign
+        run: cosign sign --yes "${{ steps.push_image.outputs.sha_tag }}"
 
       - name: Verify signature
         run: |
           cosign verify \
-            --certificate-identity-regexp="https://github.com/${{ github.repository }}/.github/workflows/ci.yml@refs/heads/main" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ steps.push.outputs.sha-tag }} \
-            2>&1 | head -10
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/ci.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${{ steps.push_image.outputs.sha_tag }}"
 
       - name: Write summary
         run: |
-          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "## ✍ Image Signing (Cosign)" >> $GITHUB_STEP_SUMMARY
-          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Signed | \`${{ steps.push.outputs.sha-tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Method | Cosign keyless (Sigstore) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Log | Rekor transparency log (public) |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "cosign verify \\" >> $GITHUB_STEP_SUMMARY
-          echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/*' \\" >> $GITHUB_STEP_SUMMARY
-          echo "  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \\" >> $GITHUB_STEP_SUMMARY
-          echo "  ghcr.io/$REPO:${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Image Signing (Cosign)"
+            echo ""
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| Signed | \`${{ steps.push_image.outputs.sha_tag }}\` |"
+            echo "| Method | Cosign keyless (Sigstore) |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  # ============================================================
-  # JOB 8 — PIPELINE SUMMARY (always runs)
-  # Writes the full security report to the Actions Summary tab
-  # ============================================================
+  # ── JOB 8 · SUMMARY (always runs) ────────────────────────────
   summary:
-    name: "📊 Summary"
+    name: Summary
     runs-on: ubuntu-latest
-    needs: [scan-deps, scan-image, sbom]
+    needs:
+      - scan-deps
+      - scan-image
+      - sbom
     if: always()
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download scan artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         continue-on-error: true
 
-      - name: Generate security report
+      - name: Generate summary report
         run: |
-          python3 - << 'EOF'
-          import json, os
+          python3 - <<'PY'
+          import json
+          import os
 
-          def count(path, sev):
-            try:
-              data = json.load(open(path))
-              return sum(len([v for v in (r.get("Vulnerabilities") or []) if v.get("Severity") == sev]) for r in data.get("Results", []))
-            except:
-              return 0
+          def count(path, severity):
+              try:
+                  with open(path, "r", encoding="utf-8") as f:
+                      data = json.load(f)
+                  total = 0
+                  for r in data.get("Results", []):
+                      for v in r.get("Vulnerabilities") or []:
+                          if v.get("Severity") == severity:
+                              total += 1
+                  return total
+              except Exception:
+                  return 0
 
-          dc = count("trivy-deps-report/trivy-deps.json",  "CRITICAL")
-          dh = count("trivy-deps-report/trivy-deps.json",  "HIGH")
-          ic = count("trivy-image-report/trivy-image.json","CRITICAL")
-          ih = count("trivy-image-report/trivy-image.json","HIGH")
-          tc, th = dc + ic, dh + ih
+          dc = count("trivy-deps-report/trivy-deps.json", "CRITICAL")
+          dh = count("trivy-deps-report/trivy-deps.json", "HIGH")
+          ic = count("trivy-image-report/trivy-image.json", "CRITICAL")
+          ih = count("trivy-image-report/trivy-image.json", "HIGH")
 
-          is_main = os.environ.get("GITHUB_REF_NAME") == "main"
-          event   = os.environ.get("GITHUB_EVENT_NAME", "")
-          trusted = tc == 0
+          tc = dc + ic
+          th = dh + ih
 
-          trust = "✅ TRUSTED — Deployment Authorized" if trusted else "❌ UNTRUSTED — Deployment Blocked"
-          detail = ("All security gates passed. Image is signed and safe to deploy."
-                    if trusted else
-                    f"{tc} critical CVEs found. Zero-trust gate blocked deployment.")
-          sign_s = ("✅ Signed (Cosign keyless)" if is_main and event == "push" and trusted
-                    else "⏭ Skipped (not main branch)" if not is_main
-                    else "❌ Blocked (critical CVEs present)")
+          trusted   = tc == 0
+          branch    = os.environ.get("GITHUB_REF_NAME", "")
+          event     = os.environ.get("GITHUB_EVENT_NAME", "")
+          sha       = os.environ.get("GITHUB_SHA", "")[:12]
+          repo      = os.environ.get("GITHUB_REPOSITORY", "")
+          actor     = os.environ.get("GITHUB_ACTOR", "")
+          run_number = os.environ.get("GITHUB_RUN_NUMBER", "")
+          run_id    = os.environ.get("GITHUB_RUN_ID", "")
+          server    = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
 
-          repo   = os.environ.get("GITHUB_REPOSITORY", "")
-          sha    = os.environ.get("GITHUB_SHA", "")
-          branch = os.environ.get("GITHUB_REF_NAME", "")
-          actor  = os.environ.get("GITHUB_ACTOR", "")
-          run_n  = os.environ.get("GITHUB_RUN_NUMBER", "")
-          run_id = os.environ.get("GITHUB_RUN_ID", "")
-          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          if branch == "main" and event == "push" and trusted:
+              sign_status = "Signed (Cosign keyless)"
+          elif branch != "main":
+              sign_status = "Skipped (not main branch)"
+          else:
+              sign_status = "Blocked (critical CVEs present)"
 
-          out = f"""# 🛡 DevGuard — Zero-Trust Pipeline Report
+          trust_text = "TRUSTED - Deployment Authorized" if trusted else "UNTRUSTED - Deployment Blocked"
 
-| | |
-|---|---|
-| **Commit** | `{sha[:12]}` |
-| **Branch** | `{branch}` |
-| **Author** | {actor} |
-| **Event** | {event} |
-| **Run** | [#{run_n}]({server}/{repo}/actions/runs/{run_id}) |
-
----
-
-## 🔒 Trust Gate Decision
-
-### {trust}
-{detail}
-
----
-
-## 📊 Security Scan Results
-
-| Scan | 🔴 Critical | 🟠 High | Gate |
-|------|-------------|---------|------|
-| Dependency (Trivy) | {dc} | {dh} | {"✅ Pass" if dc == 0 else "❌ Blocked"} |
-| Image (Trivy) | {ic} | {ih} | {"✅ Pass" if ic == 0 else "❌ Blocked"} |
-| **TOTAL** | **{tc}** | **{th}** | |
-
----
-
-## 🔗 Pipeline Stages
-
-| # | Stage | Tool | Status |
-|---|-------|------|--------|
-| 1 | 🔍 Lint | flake8 7.1.1 | ✅ Passed |
-| 2 | 🧪 Tests | pytest + pytest-cov | ✅ Passed |
-| 3 | 🛡 Dependency Scan | Trivy (fs) | {"✅ Passed" if dc == 0 else "❌ Blocked"} |
-| 4 | 🐳 Docker Build | Docker Buildx | ✅ Built |
-| 5 | 🔬 Image Scan | Trivy (image) | {"✅ Passed" if ic == 0 else "❌ Blocked"} |
-| 6 | 📋 SBOM | Syft SPDX JSON | ✅ Generated |
-| 7 | ✍ Sign | Cosign keyless | {sign_s} |
-| 8 | 📊 Summary | — | ✅ Done |
-
----
-
-## 📁 Downloadable Artifacts
-
-| Artifact | Contents | Retention |
-|----------|----------|-----------|
-| `coverage-report` | pytest XML coverage | 7 days |
-| `trivy-deps-report` | Dependency CVE scan | 14 days |
-| `trivy-image-report` | Image CVE scan | 14 days |
-| `sbom-report` | SPDX Bill of Materials | 90 days |
-
----
-*DevGuard Zero-Trust Pipeline · `{sha[:12]}` · `{branch}`*
-"""
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-            f.write(out)
-          print("Report written.")
-          EOF
+          report = (
+              "# DevGuard Zero-Trust Pipeline Report\n\n"
+              "| Item | Value |\n"
+              "|------|-------|\n"
+              f"| Commit | `{sha}` |\n"
+              f"| Branch | `{branch}` |\n"
+              f"| Author | `{actor}` |\n"
+              f"| Event | `{event}` |\n"
+              f"| Run | [#{run_number}]({server}/{repo}/actions/runs/{run_id}) |\n\n"
+              "## Trust Gate\n\n"
+              f"**{trust_text}**\n\n"
+              "## Security Results\n\n"
+              "| Scan | Critical | High |\n"
+              "|------|----------|------|\n"
+              f"| Dependency Scan | {dc} | {dh} |\n"
+              f"| Image Scan | {ic} | {ih} |\n"
+              f"| **Total** | **{tc}** | **{th}** |\n\n"
+              "## Pipeline Stages\n\n"
+              "| Stage | Status |\n"
+              "|-------|--------|\n"
+              "| Lint | Passed |\n"
+              "| Test | Passed |\n"
+              f"| Dependency Scan | {'Passed' if dc == 0 else 'Blocked'} |\n"
+              "| Docker Build | Built |\n"
+              f"| Image Scan | {'Passed' if ic == 0 else 'Blocked'} |\n"
+              "| SBOM | Generated |\n"
+              f"| Sign | {sign_status} |\n"
+              "| Summary | Done |\n"
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(report)
+          print("Summary written.")
+          PY
