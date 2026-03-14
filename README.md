@@ -7,31 +7,77 @@ A DevSecOps platform that prevents vulnerable Flask applications from being depl
 ## What This Project Does
 
 DevGuard is a **control system for build trust**. Every code change goes through a zero-trust pipeline before deployment:
-
 ```
-Developer pushes code
-        ↓
-GitHub Actions starts
-        ↓
-  Lint + Test ──── fail → pipeline stops
-        ↓
-  Dependency Scan ─ fail → deployment blocked
-        ↓
-  Docker Build
-        ↓
-  Image Scan ────── fail → deployment blocked
-        ↓
-  SBOM Generation
-        ↓
-  Image Signing
-        ↓
-  Deploy (only if ALL checks passed + image signed)
-        ↓
-  Results stored in Flask API
-        ↓
-  Grafana Dashboard shows metrics
+Developer pushes code to GitHub
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│                    CI PIPELINE                          │
+│                                                         │
+│  Stage 1: LINT (flake8)                                 │
+│  ├── Checks code style and quality                      │
+│  ├── Enforces PEP8 Python standards                     │
+│  └── BLOCKS if: syntax errors, bad imports              │
+│                    │                                    │
+│  Stage 2: TEST (pytest)                                 │
+│  ├── Runs all unit tests                                │
+│  ├── Measures code coverage                             │
+│  └── BLOCKS if: any test fails                          │
+│                    │                                    │
+│  Stage 3: DEPENDENCY SCAN (Trivy)                       │
+│  ├── Scans requirements.txt against CVE database        │
+│  ├── Checks every package you installed                 │
+│  └── BLOCKS if: any CRITICAL vulnerability found        │
+│                    │                                    │
+│  Stage 4: DOCKER BUILD                                  │
+│  ├── Builds container image                             │
+│  ├── Non-root user, slim base image                     │
+│  └── Saves image as artifact for next stages            │
+│                    │                                    │
+│         ┌──────────┴──────────┐                         │
+│         ▼                     ▼                         │
+│  Stage 5: IMAGE SCAN    Stage 6: SBOM                   │
+│  ├── Trivy scans the    ├── Syft generates list         │
+│  │   built Docker       │   of EVERY component          │
+│  │   image for OS       │   inside the image            │
+│  │   + package CVEs     └── Software Bill of            │
+│  └── BLOCKS if:              Materials (audit trail)    │
+│      CRITICAL CVE found                                 │
+│         └──────────┬──────────┘                         │
+│                    ▼                                    │
+│  Stage 7: SIGN IMAGE (Cosign)                           │
+│  ├── Cryptographically signs the Docker image           │
+│  ├── Signature stored in public Sigstore/Rekor log      │
+│  ├── Anyone can VERIFY the image came from your CI      │
+│  └── ONLY runs on main branch after all gates pass      │
+│                    │                                    │
+│  Stage 8: SUMMARY                                       │
+│  └── Security report written to GitHub Actions tab      │
+└─────────────────────────────────────────────────────────┘
+              │
+              │  (only if ALL 8 stages pass)
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│                    CD PIPELINE                          │
+│                                                         │
+│  Stage 1: PRE-DEPLOY CHECKS                             │
+│  └── Verifies CI passed before touching production      │
+│                    │                                    │
+│  Stage 2: DEPLOY                                        │
+│  ├── Builds image on runner                             │
+│  ├── Checks non-root user, Gunicorn, health endpoint    │
+│  └── Would SSH to your server and run docker compose    │
+│                    │                                    │
+│  Stage 3: VERIFY                                        │
+│  └── Post-deploy health checks on live app              │
+│                    │                                    │
+│  Stage 4: SUMMARY                                       │
+│  └── Full deployment report in GitHub Actions tab       │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+     ✅ TRUSTED BUILD IN PRODUCTION
 ```
-
 ---
 
 ## Quick Start (Local Development)
